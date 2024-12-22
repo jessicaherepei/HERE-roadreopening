@@ -5,9 +5,7 @@ from shapely.geometry import Point, LineString
 from shapely.ops import nearest_points
 import datetime
 
-# ----------------------------------------------------
-# 1. Configuration & Advanced Parameters
-# ----------------------------------------------------
+# 1. Configuration & Parameters
 
 # Distances in meters
 DISTANCE_THRESHOLD = 10.0  
@@ -18,17 +16,17 @@ DELTA_HEADING_MAX = 30.0
 # Minimum speed in m/s (about 10.8 km/h)
 VELOCITY_MIN = 3.0  
 
-# For partial segment approach, subdivide the road every XX meters
+# Subdivide the road every XX meters
 SEGMENT_LENGTH = 50.0  
 
-# Time bin size (for the rolling or binned approach)
-TIME_WINDOW = '5min'
+# Time bin size (for the rolling/binned approach)
+TIME_WINDOW = '600min'
 
 # Minimum unique trajectories in a time bin to consider the road "in use"
-TRAJECTORY_THRESHOLD = 5  
+TRAJECTORY_THRESHOLD = 2
 
 # Number of consecutive bins meeting the threshold to declare "reopened"
-CONSECUTIVE_BINS_OPEN = 3  
+CONSECUTIVE_BINS_OPEN = 2  
 
 # Number of consecutive bins below threshold to declare "closed" again
 CONSECUTIVE_BINS_CLOSED = 3  
@@ -40,10 +38,7 @@ ROLLING_WINDOW_SIZE = 3
 MAX_HEADING_CHANGE_PER_SEC = 40.0  # deg/sec, just an example
 MAX_SPEED_CHANGE_PER_SEC = 5.0     # m/s^2, e.g., 5 m/s per second
 
-
-# ----------------------------------------------------
 # 2. Helper Functions
-# ----------------------------------------------------
 
 def compute_heading_degrees(p1: Point, p2: Point) -> float:
     """
@@ -90,12 +85,12 @@ def detect_outliers_in_trajectory(traj_df: pd.DataFrame) -> pd.DataFrame:
       - Check heading/speed changes vs. time difference
       - Drop points that exceed thresholds
     """
-    traj_df = traj_df.sort_values('sample_date')
+    traj_df = traj_df.sort_values('datetime')
     to_drop = []
     prev_row = None
     for idx, row in traj_df.iterrows():
         if prev_row is not None:
-            dt = (row['sample_date'] - prev_row['sample_date']).total_seconds()
+            dt = (row['datetime'] - prev_row['datetime']).total_seconds()
             if dt > 0:
                 heading_change = minimal_heading_difference(row['heading'], prev_row['heading'])
                 speed_change = abs(row['speed'] - prev_row['speed'])
@@ -127,10 +122,7 @@ def subdivide_linestring(line: LineString, segment_length: float) -> list[LineSt
         dist_covered += segment_length
     return segments
 
-
-# ----------------------------------------------------
 # 3. Load Road Geometry & Probe Data
-# ----------------------------------------------------
 
 def main():
     # 3.1 Load the closed (or partially closed) road geometry
@@ -141,7 +133,7 @@ def main():
     # 3.2 Load raw probe data
     probe_data_df = pd.read_csv('probe_data.csv')
     # Expected columns: ['lat', 'lon', 'heading', 'speed', 'trajectory_id', 'timestamp']
-    probe_data_df['sample_date'] = pd.to_datetime(probe_data_df['sample_date'])
+    probe_data_df['datetime'] = pd.to_datetime(probe_data_df['datetime'])
     
     # Convert to GeoDataFrame
     probe_data_gdf = gpd.GeoDataFrame(
@@ -157,16 +149,10 @@ def main():
     # Update reference to the line in projected coordinates
     closed_road_line = closed_road_gdf.geometry.iloc[0]
     
-    
-    # ----------------------------------------------------
     # 4. Optional: Subdivide the Road for Partial Detection
-    # ----------------------------------------------------
     road_segments = subdivide_linestring(closed_road_line, SEGMENT_LENGTH)
     
-    
-    # ----------------------------------------------------
     # 5. Basic "Map Matching" & Filtering
-    # ----------------------------------------------------
     # We'll do a simplified approach:
     # 1. For each point, find the nearest line segment among the sub-segments
     # 2. Filter by distance threshold, heading threshold, and speed
@@ -218,22 +204,16 @@ def main():
     # Speed filter
     probe_data_gdf = probe_data_gdf[probe_data_gdf['speed'] >= VELOCITY_MIN].copy()
     
-    
-    # ----------------------------------------------------
     # 6. (Optional) Outlier Detection Per Trajectory
-    # ----------------------------------------------------
     filtered_dfs = []
     for traj_id, subdf in probe_data_gdf.groupby('session_id'):
         clean_subdf = detect_outliers_in_trajectory(subdf)
         filtered_dfs.append(clean_subdf)
-    probe_data_gdf = pd.concat(filtered_dfs).sort_values(['session_id', 'sample_date'])
+    probe_data_gdf = pd.concat(filtered_dfs).sort_values(['session_id', 'datetime'])
     
-    
-    # ----------------------------------------------------
     # 7. Usage Computation: Rolling or Binned
-    # ----------------------------------------------------
     # Let's bin data into TIME_WINDOW intervals, count distinct trajectories
-    probe_data_gdf['time_bin'] = probe_data_gdf['sample_date'].dt.floor(TIME_WINDOW)
+    probe_data_gdf['time_bin'] = probe_data_gdf['datetime'].dt.floor(TIME_WINDOW)
     
     # Count distinct trajectories per time bin
     usage_series = probe_data_gdf.groupby('time_bin')['session_id'].nunique().sort_index()
@@ -241,9 +221,7 @@ def main():
     # Optionally apply a rolling mean to smooth out noise
     usage_smoothed = usage_series.rolling(ROLLING_WINDOW_SIZE, min_periods=1).mean()
     
-    # ----------------------------------------------------
     # 8. Partial Reopening: Evaluate Usage per Segment
-    # ----------------------------------------------------
     # For advanced analysis, we can also do a pivot: time_bin x road_segment_id -> unique trajectories
     segment_usage = probe_data_gdf.groupby(['time_bin', 'road_segment_id'])['session_id'].nunique().unstack(fill_value=0)
     # segment_usage is now a DataFrame: rows = time_bins, columns = segment IDs
@@ -257,10 +235,7 @@ def main():
     # Or the fraction of segments in use:
     fraction_in_use = segment_in_use_count / len(road_segments)
     
-    
-    # ----------------------------------------------------
     # 9. Advanced Decision Logic with Hysteresis
-    # ----------------------------------------------------
     # We want to declare the entire road open if the overall usage
     # (based on usage_smoothed) is above TRAJECTORY_THRESHOLD for
     # CONSECUTIVE_BINS_OPEN bins, or if a significant fraction of
