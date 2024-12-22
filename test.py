@@ -90,12 +90,12 @@ def detect_outliers_in_trajectory(traj_df: pd.DataFrame) -> pd.DataFrame:
       - Check heading/speed changes vs. time difference
       - Drop points that exceed thresholds
     """
-    traj_df = traj_df.sort_values('timestamp')
+    traj_df = traj_df.sort_values('sample_date')
     to_drop = []
     prev_row = None
     for idx, row in traj_df.iterrows():
         if prev_row is not None:
-            dt = (row['timestamp'] - prev_row['timestamp']).total_seconds()
+            dt = (row['sample_date'] - prev_row['sample_date']).total_seconds()
             if dt > 0:
                 heading_change = minimal_heading_difference(row['heading'], prev_row['heading'])
                 speed_change = abs(row['speed'] - prev_row['speed'])
@@ -141,7 +141,7 @@ def main():
     # 3.2 Load raw probe data
     probe_data_df = pd.read_csv('probe_data.csv')
     # Expected columns: ['lat', 'lon', 'heading', 'speed', 'trajectory_id', 'timestamp']
-    probe_data_df['timestamp'] = pd.to_datetime(probe_data_df['timestamp'])
+    probe_data_df['sample_date'] = pd.to_datetime(probe_data_df['sample_date'])
     
     # Convert to GeoDataFrame
     probe_data_gdf = gpd.GeoDataFrame(
@@ -223,20 +223,20 @@ def main():
     # 6. (Optional) Outlier Detection Per Trajectory
     # ----------------------------------------------------
     filtered_dfs = []
-    for traj_id, subdf in probe_data_gdf.groupby('trajectory_id'):
+    for traj_id, subdf in probe_data_gdf.groupby('session_id'):
         clean_subdf = detect_outliers_in_trajectory(subdf)
         filtered_dfs.append(clean_subdf)
-    probe_data_gdf = pd.concat(filtered_dfs).sort_values(['trajectory_id', 'timestamp'])
+    probe_data_gdf = pd.concat(filtered_dfs).sort_values(['session_id', 'sample_date'])
     
     
     # ----------------------------------------------------
     # 7. Usage Computation: Rolling or Binned
     # ----------------------------------------------------
     # Let's bin data into TIME_WINDOW intervals, count distinct trajectories
-    probe_data_gdf['time_bin'] = probe_data_gdf['timestamp'].dt.floor(TIME_WINDOW)
+    probe_data_gdf['time_bin'] = probe_data_gdf['sample_date'].dt.floor(TIME_WINDOW)
     
     # Count distinct trajectories per time bin
-    usage_series = probe_data_gdf.groupby('time_bin')['trajectory_id'].nunique().sort_index()
+    usage_series = probe_data_gdf.groupby('time_bin')['session_id'].nunique().sort_index()
     
     # Optionally apply a rolling mean to smooth out noise
     usage_smoothed = usage_series.rolling(ROLLING_WINDOW_SIZE, min_periods=1).mean()
@@ -245,7 +245,7 @@ def main():
     # 8. Partial Reopening: Evaluate Usage per Segment
     # ----------------------------------------------------
     # For advanced analysis, we can also do a pivot: time_bin x road_segment_id -> unique trajectories
-    segment_usage = probe_data_gdf.groupby(['time_bin', 'road_segment_id'])['trajectory_id'].nunique().unstack(fill_value=0)
+    segment_usage = probe_data_gdf.groupby(['time_bin', 'road_segment_id'])['session_id'].nunique().unstack(fill_value=0)
     # segment_usage is now a DataFrame: rows = time_bins, columns = segment IDs
     
     # We could define a threshold for each segment:
