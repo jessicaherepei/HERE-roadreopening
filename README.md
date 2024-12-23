@@ -3,7 +3,9 @@
 ## Overview
 This Python script processes probe data to determine whether a closed road has been reopened based on the trajectories of vehicles. It utilizes geographic data handling libraries to compute distances and headings between points and road segments, and identifies valid trajectories based on specified criteria.
 
-[ArcGIS Visualization](https://here.maps.arcgis.com/home/item.html?id=49e4c818a7234523bc37dfb5677ce68a)
+[ArcGIS Visualization Netherlands](https://here.maps.arcgis.com/home/item.html?id=49e4c818a7234523bc37dfb5677ce68a)
+
+[ArcGIS Visualization Poland](https://here.maps.arcgis.com/home/item.html?id=625bffe4175145418ad12f55ad1d2760)
 ## Features
 - **Distance Calculation**: Determines if probe points are near a closed road using a specified distance threshold.
 - **Heading Comparison**: Calculates the heading of the road and compares it with the heading of the probe points to ensure consistency.
